@@ -1,0 +1,46 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "User Profile",
+      "description": "Stores architect and buyer profile information.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Firebase Auth UID" },
+        "displayName": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "photoURL": { "type": "string", "format": "uri" },
+        "bio": { "type": "string" },
+        "role": { "type": "string", "enum": ["architect", "buyer"] }
+      },
+      "required": ["uid", "email", "role"]
+    },
+    "Plan": {
+      "title": "Architectural Plan",
+      "description": "A building plan with 2D/3D data.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "walls": { "type": "array", "items": { "type": "object" } },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "authorId": { "type": "string" },
+        "isPublic": { "type": "boolean" },
+        "price": { "type": "number" },
+        "marketingDescription": { "type": "string" },
+        "thumbnailUrl": { "type": "string", "format": "uri" }
+      },
+      "required": ["name", "authorId", "walls", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "User profile documents"
+    },
+    "/plans/{planId}": {
+      "schema": "Plan",
+      "description": "Architectural plan documents"
+    }
+  }
+}

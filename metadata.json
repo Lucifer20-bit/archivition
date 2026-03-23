@@ -1,0 +1,9 @@
+{
+  "name": "Archivision",
+  "description": "A professional platform for architects to design building plans in 2D and 3D, showcase them in a global marketplace, and leverage AI for automated marketing.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone",
+    "geolocation"
+  ]
+}
