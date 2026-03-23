@@ -8,12 +8,22 @@ export interface Point {
   y: number;
 }
 
+export interface Opening {
+  id: string;
+  type: 'window' | 'door';
+  position: number; // 0 to 1 along the wall (percentage from start)
+  width: number;
+  height: number;
+  bottomHeight: number; // height from floor
+}
+
 export interface Wall {
   id: string;
   start: Point;
   end: Point;
   thickness: number;
   height: number;
+  openings?: Opening[];
 }
 
 export interface Plan {

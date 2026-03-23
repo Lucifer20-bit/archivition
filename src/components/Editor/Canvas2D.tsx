@@ -5,18 +5,23 @@
 
 import React, { useRef, useEffect, useState } from 'react';
 import { Wall, Point } from '../../types';
+import { Trash2 } from 'lucide-react';
 
-export type Tool = 'wall' | 'measure';
+export type Tool = 'wall' | 'measure' | 'select' | 'opening' | 'measure3d';
 
 interface Canvas2DProps {
   walls: Wall[];
   tool: Tool;
+  selectedWallId: string | null;
+  metersPerUnit: number;
+  onSelectWall: (id: string | null) => void;
   onAddWall: (wall: Wall) => void;
   onUpdateWall: (wall: Wall) => void;
   onDeleteWall: (id: string) => void;
+  onAddOpening?: (wallId: string, position: number) => void;
 }
 
-export const Canvas2D = ({ walls, tool, onAddWall }: Canvas2DProps) => {
+export const Canvas2D = ({ walls, tool, selectedWallId, metersPerUnit, onSelectWall, onAddWall, onDeleteWall, onAddOpening }: Canvas2DProps) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const [startPoint, setStartPoint] = useState<Point | null>(null);
@@ -58,14 +63,45 @@ export const Canvas2D = ({ walls, tool, onAddWall }: Canvas2DProps) => {
     }
 
     // Draw existing walls
-    ctx.strokeStyle = '#18181b';
-    ctx.lineWidth = 4;
-    ctx.lineCap = 'round';
     walls.forEach(wall => {
+      ctx.strokeStyle = wall.id === selectedWallId ? '#ef4444' : '#18181b';
+      ctx.lineWidth = wall.id === selectedWallId ? 6 : 4;
+      ctx.lineCap = 'round';
       ctx.beginPath();
       ctx.moveTo(wall.start.x, wall.start.y);
       ctx.lineTo(wall.end.x, wall.end.y);
       ctx.stroke();
+
+      // Draw openings
+      if (wall.openings && wall.openings.length > 0) {
+        wall.openings.forEach(opening => {
+          const dx = wall.end.x - wall.start.x;
+          const dy = wall.end.y - wall.start.y;
+          const wallLen = Math.sqrt(dx * dx + dy * dy);
+          const unitX = dx / wallLen;
+          const unitY = dy / wallLen;
+
+          const openingStartPos = opening.position - (opening.width / 2 / wallLen);
+          const openingEndPos = opening.position + (opening.width / 2 / wallLen);
+
+          const startX = wall.start.x + unitX * wallLen * openingStartPos;
+          const startY = wall.start.y + unitY * wallLen * openingStartPos;
+          const endX = wall.start.x + unitX * wallLen * openingEndPos;
+          const endY = wall.start.y + unitY * wallLen * openingEndPos;
+
+          ctx.strokeStyle = opening.type === 'door' ? '#92400e' : '#7dd3fc';
+          ctx.lineWidth = wall.id === selectedWallId ? 8 : 6;
+          ctx.beginPath();
+          ctx.moveTo(startX, startY);
+          ctx.lineTo(endX, endY);
+          ctx.stroke();
+          
+          // Add label for opening
+          ctx.fillStyle = opening.type === 'door' ? '#92400e' : '#0369a1';
+          ctx.font = '8px Inter, sans-serif';
+          ctx.fillText(opening.type === 'door' ? 'D' : 'W', (startX + endX) / 2, (startY + endY) / 2 - 5);
+        });
+      }
     });
 
     // Draw current wall or measurement being drawn
@@ -96,7 +132,7 @@ export const Canvas2D = ({ walls, tool, onAddWall }: Canvas2DProps) => {
         ctx.textAlign = 'center';
         const midX = (startPoint.x + currentPoint.x) / 2;
         const midY = (startPoint.y + currentPoint.y) / 2;
-        ctx.fillText(`${(dist / 20).toFixed(2)}m`, midX, midY - 10);
+        ctx.fillText(`${((dist / 20) * metersPerUnit).toFixed(2)}m`, midX, midY - 10);
       }
     }
 
@@ -116,22 +152,52 @@ export const Canvas2D = ({ walls, tool, onAddWall }: Canvas2DProps) => {
       ctx.textAlign = 'center';
       const midX = (lastMeasurement.start.x + lastMeasurement.end.x) / 2;
       const midY = (lastMeasurement.start.y + lastMeasurement.end.y) / 2;
-      ctx.fillText(`${(lastMeasurement.distance / 20).toFixed(2)}m`, midX, midY - 10);
+      ctx.fillText(`${((lastMeasurement.distance / 20) * metersPerUnit).toFixed(2)}m`, midX, midY - 10);
     }
   };
 
   useEffect(() => {
     draw();
-  }, [walls, isDrawing, startPoint, currentPoint, lastMeasurement]);
+  }, [walls, isDrawing, startPoint, currentPoint, lastMeasurement, selectedWallId]);
 
   const handleMouseDown = (e: React.MouseEvent) => {
     const pos = getMousePos(e);
+    
+    if (tool === 'select' || tool === 'opening') {
+      // Find wall near click
+      const clickedWall = walls.find(wall => {
+        const d = distToSegment(pos, wall.start, wall.end);
+        return d < 10;
+      });
+      
+      if (tool === 'select') {
+        onSelectWall(clickedWall?.id || null);
+      } else if (tool === 'opening' && clickedWall && onAddOpening) {
+        // Calculate position along wall (0 to 1)
+        const dx = clickedWall.end.x - clickedWall.start.x;
+        const dy = clickedWall.end.y - clickedWall.start.y;
+        const l2 = dx * dx + dy * dy;
+        let t = ((pos.x - clickedWall.start.x) * dx + (pos.y - clickedWall.start.y) * dy) / l2;
+        t = Math.max(0, Math.min(1, t));
+        onAddOpening(clickedWall.id, t);
+      }
+      return;
+    }
+
     setIsDrawing(true);
     setStartPoint(pos);
     setCurrentPoint(pos);
     if (tool === 'measure') {
       setLastMeasurement(null);
     }
+  };
+
+  const distToSegment = (p: Point, v: Point, w: Point) => {
+    const l2 = Math.pow(v.x - w.x, 2) + Math.pow(v.y - w.y, 2);
+    if (l2 === 0) return Math.sqrt(Math.pow(p.x - v.x, 2) + Math.pow(p.y - v.y, 2));
+    let t = ((p.x - v.x) * (w.x - v.x) + (p.y - v.y) * (w.y - v.y)) / l2;
+    t = Math.max(0, Math.min(1, t));
+    return Math.sqrt(Math.pow(p.x - (v.x + t * (w.x - v.x)), 2) + Math.pow(p.y - (v.y + t * (w.y - v.y)), 2));
   };
 
   const handleMouseMove = (e: React.MouseEvent) => {
@@ -181,8 +247,22 @@ export const Canvas2D = ({ walls, tool, onAddWall }: Canvas2DProps) => {
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
       />
-      <div className="absolute bottom-4 left-4 bg-white/80 backdrop-blur-sm px-3 py-1.5 rounded-full text-xs font-medium text-zinc-500 border border-zinc-200 shadow-sm">
-        Click and drag to draw walls
+      <div className="absolute bottom-4 left-4 flex flex-col gap-2">
+        {selectedWallId && (
+          <button
+            onClick={() => {
+              onDeleteWall(selectedWallId);
+              onSelectWall(null);
+            }}
+            className="bg-red-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold shadow-lg hover:bg-red-700 transition-colors flex items-center gap-2"
+          >
+            <Trash2 size={14} />
+            Delete Selected Wall
+          </button>
+        )}
+        <div className="bg-white/80 backdrop-blur-sm px-3 py-1.5 rounded-full text-xs font-medium text-zinc-500 border border-zinc-200 shadow-sm">
+          {tool === 'wall' ? 'Click and drag to draw walls' : tool === 'measure' ? 'Click and drag to measure' : tool === 'opening' ? 'Click a wall to add window/door' : 'Click a wall to select it'}
+        </div>
       </div>
     </div>
   );

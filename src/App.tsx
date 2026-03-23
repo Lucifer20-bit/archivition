@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { onAuthStateChanged, User } from 'firebase/auth';
-import { collection, query, where, onSnapshot, addDoc, updateDoc, doc, deleteDoc } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, addDoc, updateDoc, doc, deleteDoc, getDoc } from 'firebase/firestore';
 import { auth, db, logout, handleFirestoreError, OperationType } from './firebase';
 import { Layout } from './components/Layout';
 import { Dashboard } from './components/Dashboard';
@@ -23,8 +23,36 @@ export default function App() {
   const [plans, setPlans] = useState<Plan[]>([]);
   const [marketplacePlans, setMarketplacePlans] = useState<Plan[]>([]);
   const [editingPlan, setEditingPlan] = useState<Plan | null>(null);
+  const [sharedPlan, setSharedPlan] = useState<Plan | null>(null);
   const [marketingPlan, setMarketingPlan] = useState<Plan | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // Handle shared plan from URL
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const planId = params.get('planId');
+    if (planId) {
+      const fetchSharedPlan = async () => {
+        try {
+          const planDoc = await getDoc(doc(db, 'plans', planId));
+          if (planDoc.exists()) {
+            const data = planDoc.data() as Plan;
+            if (data.isPublic || (user && data.authorId === user.uid)) {
+              setSharedPlan({ id: planDoc.id, ...data });
+              setActiveTab('editor');
+            } else {
+              setError('This plan is private or you do not have permission to view it.');
+            }
+          } else {
+            setError('Plan not found.');
+          }
+        } catch (err) {
+          handleFirestoreError(err, OperationType.GET, `plans/${planId}`);
+        }
+      };
+      fetchSharedPlan();
+    }
+  }, [user]);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
@@ -66,8 +94,9 @@ export default function App() {
     if (!user) return;
 
     try {
-      if (editingPlan) {
-        const planRef = doc(db, 'plans', editingPlan.id);
+      let planId = editingPlan?.id;
+      if (planId) {
+        const planRef = doc(db, 'plans', planId);
         await updateDoc(planRef, planData);
       } else {
         const newPlan = {
@@ -79,12 +108,24 @@ export default function App() {
           walls: planData.walls || [],
           name: planData.name || 'Untitled Plan',
         };
-        await addDoc(collection(db, 'plans'), newPlan);
+        const docRef = await addDoc(collection(db, 'plans'), newPlan);
+        planId = docRef.id;
       }
       setActiveTab('dashboard');
       setEditingPlan(null);
+      return planId;
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, 'plans');
+    }
+  };
+
+  const handleSharePlan = async (planId: string) => {
+    try {
+      const planRef = doc(db, 'plans', planId);
+      await updateDoc(planRef, { isPublic: true });
+      return `${window.location.origin}${window.location.pathname}?planId=${planId}`;
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, `plans/${planId}`);
     }
   };
 
@@ -141,8 +182,10 @@ export default function App() {
 
       {activeTab === 'editor' && (
         <Editor 
+          user={user}
           onSave={handleSavePlan} 
-          initialPlan={editingPlan || undefined} 
+          onShare={handleSharePlan}
+          initialPlan={sharedPlan || editingPlan || undefined} 
         />
       )}
 
